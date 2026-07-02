@@ -69,7 +69,9 @@ class MedicalPipeline:
         log.info("loaded audio: shape=%s, sr=%d", audio.shape, sample_rate)
 
         # 2. Preprocess
+        log.info("audio before preprocess: max=%.4f, rms=%.4f", np.max(np.abs(audio)), np.sqrt(np.mean(audio**2)))
         audio = preprocess(audio, sample_rate)
+        log.info("audio after preprocess: max=%.4f, rms=%.4f", np.max(np.abs(audio)), np.sqrt(np.mean(audio**2)))
 
         # 3. Diarize
         segments = diarize(audio, sample_rate, self.cfg.ica)
@@ -102,15 +104,9 @@ class MedicalPipeline:
         segments, segments_text = zip(*valid)
         segments_text = list(segments_text)
 
-        # 5. LLM spell correction
-        corrected = []
-        for text in segments_text:
-            try:
-                corrected.append(self.llm.correct_spelling(text))
-            except Exception as e:
-                log.warning("spell correction failed for segment: %s", e)
-                corrected.append(text)
-        log.info("spell correction complete")
+        # 5. LLM spell correction (batch — groups segments to reduce LLM calls)
+        corrected = self.llm.correct_spelling_batch(segments_text)
+        log.info("spell correction complete (%d segments)", len(corrected))
 
         # 6. LLM role assignment
         roles = self.llm.assign_roles(corrected)
@@ -162,12 +158,7 @@ class MedicalPipeline:
         segments, segments_text = zip(*valid)
         segments_text = list(segments_text)
 
-        corrected = []
-        for text in segments_text:
-            try:
-                corrected.append(self.llm.correct_spelling(text))
-            except Exception:
-                corrected.append(text)
+        corrected = self.llm.correct_spelling_batch(segments_text)
 
         roles = self.llm.assign_roles(corrected)
         transcript = [{"role": role, "text": text} for role, text in zip(roles, corrected)]

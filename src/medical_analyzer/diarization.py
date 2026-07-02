@@ -59,22 +59,33 @@ def segment_by_energy(
     audio: np.ndarray,
     sample_rate: int,
     frame_ms: int = 30,
-    silence_threshold: float = 0.02,
+    silence_threshold: float | None = None,
     min_segment_ms: int = 500,
 ) -> list[SpeakerSegment]:
     """Segment mono audio into speaker turns based on energy/silence gaps.
 
     Assumes speakers alternate (doctor asks, patient answers, etc.).
     Splits at silence gaps and assigns alternating speaker labels.
+
+    If silence_threshold is None, uses adaptive threshold (15% of mean energy).
     """
     frame_size = int(sample_rate * frame_ms / 1000)
     n_frames = len(audio) // frame_size
+
+    if n_frames == 0:
+        return []
 
     # Compute energy per frame
     energies = np.array([
         np.sqrt(np.mean(audio[i * frame_size:(i + 1) * frame_size] ** 2))
         for i in range(n_frames)
     ])
+
+    # Adaptive threshold: 15% of mean energy (works across different volumes)
+    if silence_threshold is None:
+        mean_energy = np.mean(energies)
+        silence_threshold = max(mean_energy * 0.15, 0.001)
+        log.info("adaptive silence threshold: %.5f (mean energy: %.5f)", silence_threshold, mean_energy)
 
     # Find speech frames
     is_speech = energies > silence_threshold
